@@ -1,0 +1,933 @@
+---
+title: "363 Final Project: An analysis of County Demographic Data and Electoral Choices"
+author: "Ian Salvamoser"
+date: "5/8/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+#Introduction
+
+  My intention for this project was to explore data related to prevalent political or socioeconmic questions. After some consideration, I decided to examine the 2016 election cycle, and its relationship to background data. As such, I selected a Kaggle dataset comprised of county-level results from the 2016 presidential primary (excluding caucus states) and corresponding demographic data (census and related), along with the (presidential) winner of the general election in each corresponding county. 
+  My motivation for this selection was primarily a result of my desire to make use of the data in order to better understand the distinctions between counties (within and across states), and assess their relative similarity. I also wished to examine the relationship between primary election results, general election preferences, and demographic data.
+
+
+#Methodology
+  
+
+In response to the first objective, I utilized Principal Component Analysis to better understand demographic variability across several Midwestern Obama-Trump states.
+
+I also performed Cluster Analysis on North Carolina in order to visualize and explain sources of similarity and difference between counties. I also drew qualitative conclusions from this analysis, which could be compared to those of PCA in the Midwest. 
+
+Finally, in response to the second objective, I utilized Discriminant Analysis to classify counties by combination of state/region (Michigan/Wisconsin, North Carolina) and presidential winner. 
+
+
+# Data
+Before moving forward, some specifics about the dataset:
+
+Variables: The original dataset had approximately 50 variables, but after considerations regarding sample size and relevance, the list was reduced to the following:
+    area-name 
+    state_abbreviation  
+    POP010210 - Population, 2010 census  
+    AGE775214 - Persons 65 years and over, percent, 2014  
+    RHI225214 - Black or African American alone, percent, 2014  
+    RHI725214 - Hispanic or Latino, percent, 2014  
+    RHI825214 - White alone, not Hispanic or Latino, percent, 2014  
+    POP645213 - Foreign born persons, percent, 2009-2013  
+    EDU635213 - High school graduate or higher, percent of persons age 25+, 2009-2013  
+    EDU685213 - Bachelor's degree or higher, percent of persons age 25+, 2009-2013  
+    HSG495213 - Median value of owner-occupied housing units, 2009-2013  
+    INC110213 - Median household income, 2009-2013  
+    PVY020213 - Persons below poverty level, percent, 2009-2013  
+    SBO001207 - Total number of firms, 2007 (transformed to per capita)  
+    MAN450207 - Manufacturers shipments, 2007 ($1,000) (transformed to per capita)  
+    POP060210 - Population per square mile, 2010  
+    PresWinner - Winner of county in 2016 general election  
+    DA only:  
+    BernieShare - Percentage of Dem. primary votes for Sanders  
+    TedShare - Percentage of Rep. primary votes for Cruz  
+    
+
+Several variables of the original dataset merited transformation, as evidenced by the Chi-Squared quantile plot and matrix plot: 
+
+```{r message=FALSE, warning=FALSE}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "NC"),]
+
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "VA" ),]
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "NC" | Primarydata$state_abbreviation == "VA" | Primarydata$state_abbreviation == "VA" | Primarydata$state_abbreviation == "VA" ),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "NC" ),]
+
+#omit AK
+#omit CT
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+#Presdata <- Presdata[which(Presdata$st == "NC" | Presdata$st == "VA" | Presdata$st == "VA" | Presdata$st == "VA"),]
+#Presdata <- Presdata[which(Presdata$st == "NC" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+#Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", as.character(Countydata$state_abbreviation[i]), Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+
+
+Countydata <- Countydata[,c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56)]
+
+source("http://www.reuningscherer.net/STAT660/R/CSQPlot.r.txt")
+CSQPlot(Countydata[,-c(1,2,3,19)], label = "County Census Data")
+
+library(PerformanceAnalytics)
+chart.Correlation(Countydata[, -c(1,2,3,17,18,19)], histogram=TRUE, pch=19)
+
+#keep transformation on 9?
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+
+
+#transform 5,6, 7, 8, 9
+```
+
+
+As such, I made the following transformations:    
+    RHI225214, RHI725214, POP645213 -  square root     
+    EDU685213, HSG495213, POP060210 -  cube root   
+    EDU635213 - square   
+  
+After transformation:
+    
+```{r}
+CSQPlot(Countydata[,-c(1,2,3,19)], label = "County Census Data")
+```
+ 
+
+Data was provided for all 50 states, however, the multivariate distribution did not achieve approximate normality for this set, even after transformations were made. Given the necessity of multivariate normality for several techniques, I thus decided to work with various subsets of states, in hopes that such a distribution would be better approximated. Given their prevalence in the 2016 cycle, I felt that a selection from amongst the set of "battleground" states would be most interesting. Ideally this would involve multiple states with substantial similarity to one another. After testing several possible combinations, I decided to analyze both the traditional "rust belt" battlegrounds and the increasingly contentious state of North Carolina.
+
+
+
+#Principal Components analysis 
+
+In an effort to better understand the demographic variability across the historically competitive rust belt states, I performed PCA on the demographic data for Michigan, Wisconsin, Ohio, Iowa, and Pennsylvania.
+
+First, I created a Chi-Squared quantile plot to determine if the multivariate distribution across these states was approximately normal.
+  
+```{r}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "TX"),]
+
+Countydata <- Countydata[which(Countydata$state_abbreviation == "MI" | Countydata$state_abbreviation == "WI" | Countydata$state_abbreviation == "OH" | Countydata$state_abbreviation == "IA" | Countydata$state_abbreviation == "PA"  ),]
+
+Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "MI" | Primarydata$state_abbreviation == "WI" | Primarydata$state_abbreviation == "OH" | Primarydata$state_abbreviation == "IA" | Primarydata$state_abbreviation == "PA"),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "TX" ),]
+
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+Presdata <- Presdata[which(Presdata$st == "MI" | Presdata$st == "WI" | Presdata$st == "OH" | Presdata$st == "IA" | Presdata$st == "PA" ),]
+#Presdata <- Presdata[which(Presdata$st == "TX" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", as.character(Countydata$state_abbreviation[i]), Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+Countydata <- Countydata[, c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56,57)]
+
+
+
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+
+#Countydata[,7] <- Countydata[,7]^3
+source("http://www.reuningscherer.net/STAT660/R/CSQPlot.r.txt")
+CSQPlot(Countydata[,-c(1,2,3,17,18,19)], label = "County Census Data")
+CountydataMI_WI_OH_PA_IA <- Countydata
+```
+  
+The distribution was not approximately multivariate normal, so I had to proceed with PCA without the use of Parallel Analysis. 
+
+I also made sure to evaluate the linearity assumption on the relevant variables:
+
+```{r}
+chart.Correlation(CountydataMI_WI_OH_PA_IA[, -c(1,2,3,17,18,19)], histogram=TRUE, pch=19)
+```
+
+It appears that the variables are sufficiently linear for the purposes of PCA. 
+
+```{r}
+pc1 <- princomp(CountydataMI_WI_OH_PA_IA[,-c(1,2,3,17,18,19)], cor=TRUE)
+```
+
+I then employed princomp to perform PCA. A summary of the results:
+
+```{r message=FALSE, warning=FALSE}
+print(summary(pc1),digits=2,loadings=pc1$loadings,cutoff=0)
+```
+
+
+Before any further analysis, the appropriate number of components must be determined.
+Here, the first component accounts for approximately 36.8 percent of the total variance, and in order to account for a large majority of the variance (75% or 80%), we must include 4 or 5 components, respectively. 
+
+
+Next, the eigenvalues:
+
+```{r}
+round(pc1$sdev^2,2)
+```
+
+According to the eigenvalue > 1 heuristic, four components should be preserved.
+
+Further context for this decision can be provided by a scree plot:
+
+```{r}
+screeplot(pc1,type="lines",col="red",lwd=2,pch=19,cex=1.2,main="Scree Plot of County Demographic Data")
+```
+
+The most significant "elbow" in the plot begins at the third component, although there is a similar level of  variance for component 4. Consequently the scree plot implies that either of these would be a reasonable choice.
+
+Weighing the results of all three heuristics, it seems most reasonable to keep four components. 
+By analyzing the loadings provided for each component in the summary above, it is possible to arrive at meaningful (albeit approximate) qualitative interpretations of said components.
+
+Component 1 has strong negative loadings for nonwhites (RHI225214, RHI725214), foreign born individuals (POP645213), education(EDU635213, EDU685213) and population density (POP060210), which would seem to suggest that it is acting as a "ruralness index".  
+Component 2 has strong positive loadings for whites (RHI825214), education (EDU635213, EDU685213), and houshold income (INC110213), and seems to be a measure of affluence.   
+Component 3 has very strong negative loadings for manufacturing (MAN450207), negative loadings for hispanic population(RHI725214), and positive loadings for education(EDU635213, EDU685213), with moderate values for other quantities. It seems to represent an inverted version of the "working class / blue collar" index witnessed as the third component of previous iterations of this analysis.  
+Component 4 has comparatively strong loadings for small business ownership (SBO001207), Hispanic population (RHI725214) and foreign born individuals (POP645213), and negative loadings for whites (RHI825214)  which suggests that it might represent a measure of the immigrant community within a county.  
+
+I also looked at component score plots:
+
+```{r}
+plot(pc1$scores[,1], pc1$scores[,2], col = as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation), xlab ="Comp. 1 ('ruralness') score", ylab = "Comp. 2 ('affluence') score", main = "Component Scores" ) #add color argument
+#add a legend
+legend("bottomleft", legend=levels(as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation)), pch=1, col=unique(as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation) ))
+
+plot(pc1$scores[,1], pc1$scores[,3], col = as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation), xlab ="Comp. 1 ('ruralness') score", ylab = "Comp. 3 (' inverse blue-collar') score", main = "Component Scores" ) #add color argument
+#add a legend
+legend("bottomleft", legend=levels(as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation)), pch=1, col=unique(as.factor(CountydataMI_WI_OH_PA_IA$state_abbreviation) ))
+
+
+
+#source("http://reuningscherer.net/stat660/r/ciscoreplot.R.txt")
+#ciscoreplot(pc1,c(1,3),c(1:pc1$n.obs))
+```
+
+Note that observations are not evenly distributed (the implications of which will be discussed below).
+
+##Conclusions from PCA 
+
+The dataset (or this subset) was evidently well suited to PCA. The linearity assumption appeared to be satisfied, and the first four components accounted for ~76% of variance. Upon qualitative examination, these four components corresponded reasonably well to demographic narratives (i.e. ruralness, affluence, "blue-collar", and immigrant). Notably, the data did not follow a multivariate normal distribution, and there were clear relationships/correlation between component scores of observations, which were consistent with expected qualitative trends. For instance, as seen in the plot above, there is a slight downtrend in component 2 ("affluence") scores as the component 1 ("ruralness") score goes from moderate to high.Similarly, component three (" inverse blue-collar") score was shown to be lowest (in all states) at moderate values of component 1 ("ruralness"). That such trends align approximately with our expectations serves as a kind of verification that their assigned meaning is plausible. The ranking of the components is also interesting, in that it indicates the relative importance of varying types of demographic differences across midwestern counties. On the basis of this analysis, it appears that the primary considerations are ruralness, affluence, and the "blue-collar index", respectively. As it happens, this is largely consistent with the focal points of many qualitative political analyses that attempted to explain the voting choices of Midwestern communities in the 2016 general election.
+
+#Cluster Analysis
+
+To further support the objective of understanding demographic variability between counties, I decided to employ cluster analysis to visualize the patterns of similarity between counties within several states. 
+
+
+```{r}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "TX"),]
+
+Countydata <- Countydata[which(Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC" | Countydata$state_abbreviation == "NC"  ),]
+
+Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "NC" | Primarydata$state_abbreviation == "NC" | Primarydata$state_abbreviation == "NC" | Primarydata$state_abbreviation == "NC" | Primarydata$state_abbreviation == "NC"  ),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "TX" ),]
+
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+Presdata <- Presdata[which(Presdata$st == "NC" | Presdata$st == "NC" | Presdata$st == "NC" | Presdata$st == "NC" | Presdata$st == "NC" ),]
+#Presdata <- Presdata[which(Presdata$st == "TX" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", "", Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+Countydata <- Countydata[, c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56,57)]
+
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+CountydataNC <- Countydata
+#Countydata[,7] <- Countydata[,7]^3
+
+```
+  
+
+```{r}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "TX"),]
+
+Countydata <- Countydata[which(Countydata$state_abbreviation == "IA" | Countydata$state_abbreviation == "IA"  ),]
+
+Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "IA" | Primarydata$state_abbreviation == "IA"  ),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "TX" ),]
+
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+Presdata <- Presdata[which(Presdata$st == "IA" | Presdata$st == "IA"  ),]
+#Presdata <- Presdata[which(Presdata$st == "TX" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", "", Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+Countydata <- Countydata[, c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56,57)]
+
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+CountydataIA <- Countydata
+#Countydata[,7] <- Countydata[,7]^3
+
+
+
+```
+  
+Initially, I performed CA on Iowa and North Carolina. 
+The data under consideration are observations of fairly typical numerical variables, and as such Euclidian distance is the obvious choice.
+
+
+```{r message=FALSE, warning=FALSE}
+library(ape)
+library(StatMatch)
+library(stats)
+library(cluster)
+library(fpc)
+CountydataIAScaled <- CountydataIA
+CountydataIAScaled[,-c(1,2,19)]<- scale(na.omit(CountydataIA[,-c(1,2,19)]))
+
+CountydataNCScaled <- CountydataNC
+CountydataNCScaled[,-c(1,2,19)]<- scale(na.omit(CountydataNC[,-c(1,2,19)]))
+```
+
+
+```{r}
+IA.distEUC <- dist(CountydataIAScaled[,-c(1,2,3,17,18,19)], method="euclidean")
+
+NC.distEUC <- dist(CountydataNCScaled[,-c(1,2,3,17,18,19)], method="euclidean")
+IA.clustEC <- hclust(IA.distEUC)
+
+NC.clustEC <- hclust(NC.distEUC)
+```
+
+```{r}
+IA.clustEC$labels <- as.character(CountydataIAScaled[,1])
+
+NC.clustEC$labels <- as.character(CountydataNCScaled[,1])
+#plot(as.phylo(IA.clustEC), type = "unrooted", cex = 0.35, main = "Unrooted tree") 
+```
+
+After standardizing the data, I began my analysis with clusters calculated via Euclidian distance and Complete method:
+
+```{r}
+cutsIAEC <- cutree(IA.clustEC,k=5)
+plot(IA.clustEC, xlab="",ylab="Distance", cex = 0.4, main="Clustering for Counties (IA)")
+rect.hclust(IA.clustEC,k=5)
+```
+
+```{r}
+cutsNCEC <- cutree(NC.clustEC,k=5)
+plot(NC.clustEC, xlab="",ylab="Distance", cex = 0.4, main="Clustering for Counties (NC)")
+rect.hclust(NC.clustEC,k=5)
+```
+
+I then attempted to fit a qualitative narrative for each cluster:
+
+##IA  
+Cluster1: Medium to small population, relatively white, middle-low income, moderately Republican      
+Cluster2: only Dallas county, suburb of des moines, comparatively affluent      
+Cluster3: These counties tend to be larger, more liberal, and more diverse than others in IA      
+Cluster4: small, very white, low income relative to other parts of IA, Republican    
+Cluster5: small, very white, middle income, Republican    
+
+##NC  
+Cluster1: Highly populated counties with most of the urban centers    
+Cluster2: moderately white, middle income, high-tourism regions like Asheville and the Outer Banks, high home prices      
+Cluster3: small, racial composition and income levels close to average    
+Cluster4: heavily African-American, moderate income    
+Cluster5: most counties are majority minority, with high poverty rates      
+
+My comparison between clusters failed to uncover many interesting qualitative relationships in Iowa, so I decided to focus further attention on North Carolina alone.
+
+I then used the function provided by Jonathan in an effort to determine the appropriate number of clusters: 
+
+```{r echo=FALSE}
+
+source("http://reuningscherer.net/stat660/R/HClusEval.R.txt")
+hclus_eval(CountydataNCScaled[,-c(1,2,3,17,18,19)], dist_m = 'euclidean', clus_m = 'complete', plot_op = T)
+```
+
+Here we see that CD exhibits an elbow around approximately 7-8 clusters. The other quantities have negligible variance, and are therefore rather uninformative. Additionally, the (n / 2)^.5 heuristic for the optimal number of clusters here yields 7.071, so 7 appears to be the most reasonable choice for number of clusters. 
+
+I then reproduced the dendrogram made via Euclidian distance and Complete Method with 7 clusters.   
+  
+```{r}
+cutsNCEC <- cutree(NC.clustEC,k=7)
+plot(NC.clustEC, xlab="",ylab="Distance", cex = 0.4, main="Clustering for Counties (NC)")
+rect.hclust(NC.clustEC,k=7)
+```
+
+Clusters 1, 2, and 4 of the previous dendrogram remain intact, and clusters 3 and 5 have been divided into two parts each (subsequently referred to as 3a, 3b, 5a, and 5b).
+
+Cluster 3a consists mostly of counties found in the eastern portion of the state, while those in cluster 3b are further to the west. Income is average or slightly below average across both clusters. However, counties in cluster 3b generally have fewer racial/ethnic minorities than those pertaining to cluster 3a. 
+As with cluster 5 overall, most counties in clusters 5a and 5b hold (or approach) majority-minority status, and have high poverty levels and low population density. The chief difference between clusters 5a and 5b seems to be the greater concentration of hispanic individuals in 5a relative to 5b. 
+
+I tested a few other methods, most notably Ward's, as a supplementary measure, but found the results less convincing than those of Complete method. 
+
+Finally, I utilized the k-means algorithm with 7 clusters as a standard of comparison, and a secondary means of checking the appropriate number of clusters. 
+
+```{r}
+kdata <- as.matrix(CountydataNCScaled[, 4:16])
+n.lev <- 15  #set max value for number of clusters k
+
+# Calculate the within groups sum of squared error (SSE) for the number of cluster solutions selected by the user
+wss <- rnorm(10)
+while (prod(wss==sort(wss,decreasing=T))==0) {
+  wss <- (nrow(kdata)-1)*sum(apply(kdata,2,var))
+  for (i in 2:n.lev) wss[i] <- sum(kmeans(kdata, centers=i)$withinss)}
+
+# Calculate the within groups SSE for 250 randomized data sets (based on the original input data)
+k.rand <- function(x){
+  km.rand <- matrix(sample(x),dim(x)[1],dim(x)[2])
+  rand.wss <- as.matrix(dim(x)[1]-1)*sum(apply(km.rand,2,var))
+  for (i in 2:n.lev) rand.wss[i] <- sum(kmeans(km.rand, centers=i)$withinss)
+  rand.wss <- as.matrix(rand.wss)
+  return(rand.wss)
+}
+
+rand.mat <- matrix(0,n.lev,250)
+
+k.1 <- function(x) { 
+  for (i in 1:250) {
+    r.mat <- as.matrix(suppressWarnings(k.rand(kdata)))
+    rand.mat[,i] <- r.mat}
+  return(rand.mat)
+}
+
+# Same function as above for data with < 3 column variables
+k.2.rand <- function(x){
+  rand.mat <- matrix(0,n.lev,250)
+  km.rand <- matrix(sample(x),dim(x)[1],dim(x)[2])
+  rand.wss <- as.matrix(dim(x)[1]-1)*sum(apply(km.rand,2,var))
+  for (i in 2:n.lev) rand.wss[i] <- sum(kmeans(km.rand, centers=i)$withinss)
+  rand.wss <- as.matrix(rand.wss)
+  return(rand.wss)
+}
+
+k.2 <- function(x){
+  for (i in 1:250) {
+    r.1 <- k.2.rand(kdata)
+    rand.mat[,i] <- r.1}
+  return(rand.mat)
+}
+
+# Determine if the data data table has > or < 3 variables and call appropriate function above
+if (dim(kdata)[2] == 2) { rand.mat <- k.2(kdata) } else { rand.mat <- k.1(kdata) }
+
+# Plot within groups SSE against all tested cluster solutions for actual and randomized data - 1st: Log scale, 2nd: Normal scale
+
+xrange <- range(1:n.lev)
+yrange <- range(log(rand.mat),log(wss))
+plot(xrange,yrange, type='n', xlab='Cluster Solution', ylab='Log of Within Group SSE', main='Cluster Solutions against Log of SSE')
+for (i in 1:250) lines(log(rand.mat[,i]),type='l',col='red')
+lines(log(wss), type="b", col='blue')
+legend('topright',c('Actual Data', '250 Random Runs'), col=c('blue', 'red'), lty=1)
+
+yrange <- range(rand.mat,wss)
+plot(xrange,yrange, type='n', xlab="Cluster Solution", ylab="Within Groups SSE", main="Cluster Solutions against SSE")
+for (i in 1:250) lines(rand.mat[,i],type='l',col='red')
+lines(1:n.lev, wss, type="b", col='blue')
+legend('topright',c('Actual Data', '250 Random Runs'), col=c('blue', 'red'), lty=1)
+
+# Calculate the mean and standard deviation of difference between SSE of actual data and SSE of 250 randomized datasets
+r.sse <- matrix(0,dim(rand.mat)[1],dim(rand.mat)[2])
+wss.1 <- as.matrix(wss)
+for (i in 1:dim(r.sse)[2]) {
+  r.temp <- abs(rand.mat[,i]-wss.1[,1])
+  r.sse[,i] <- r.temp}
+r.sse.m <- apply(r.sse,1,mean)
+r.sse.sd <- apply(r.sse,1,sd)
+r.sse.plus <- r.sse.m + r.sse.sd
+r.sse.min <- r.sse.m - r.sse.sd
+
+# Plot differeince between actual SSE mean SSE from 250 randomized datasets - 1st: Log scale, 2nd: Normal scale 
+
+xrange <- range(1:n.lev)
+yrange <- range(log(r.sse.plus),log(r.sse.min))
+plot(xrange,yrange, type='n',xlab='Cluster Solution', ylab='Log of SSE - Random SSE', main='Cluster Solustions against (Log of SSE - Random SSE)')
+lines(log(r.sse.m), type="b", col='blue')
+lines(log(r.sse.plus), type='l', col='red')
+lines(log(r.sse.min), type='l', col='red')
+legend('topright',c('SSE - random SSE', 'SD of SSE-random SSE'), col=c('blue', 'red'), lty=1)
+
+xrange <- range(1:n.lev)
+yrange <- range(r.sse.plus,r.sse.min)
+plot(xrange,yrange, type='n',xlab='Cluster Solution', ylab='SSE - Random SSE', main='Cluster Solutions against (SSE - Random SSE)')
+lines(r.sse.m, type="b", col='blue')
+lines(r.sse.plus, type='l', col='red')
+lines(r.sse.min, type='l', col='red')
+legend('topright',c('SSE - random SSE', 'SD of SSE-random SSE'), col=c('blue', 'red'), lty=1)
+
+# Ask for user input - Select the appropriate number of clusters
+#choose.clust <- function(){readline("What clustering solution would you like to use? ")} 
+#clust.level <- as.integer(choose.clust())
+clust.level <- 7
+
+# Apply K-means cluster solutions - append clusters to CSV file
+fit <- kmeans(kdata, clust.level)
+aggregate(kdata, by=list(fit$cluster), FUN=mean)
+clust.out <- fit$cluster
+kclust <- as.matrix(clust.out)
+kclust.out <- cbind(kclust, CountydataNCScaled[,4:16])
+write.table(kclust.out, file="kmeans_out.csv", sep=",")
+
+# Display Principal Components plot of data with clusters identified
+
+clusplot(kdata, fit$cluster, shade=F, labels=2, lines=0, color=T, lty=4, main='Principal Components plot showing K-means clusters')
+
+
+#Make plot of five cluster solution in space desginated by first two
+#  two discriminant functions
+
+plotcluster(kdata, fit$cluster, main=" k Cluster Solution in DA Space",
+            xlab="First Discriminant Function", ylab="Second Discriminant Function")
+
+# end of script
+```
+
+The cluster solutions against log SSE plot often seems to indicate an elbow point at the 7th cluster where difference from the set of random runs begins to increase (an improvement), however the other plots generally portray the difference between 5 and 7 clusters as negligible. Furthermore, when plotting the clusters against principal components and in DA space, the level of overlap between clusters could be interpreted as greater than desirable. 
+
+##Summary and implications
+
+After fitting a 5 cluster (arbitrary number) hierarchical solution to the counties of Iowa and North Carolina, I examined the counties in each cluster in order to construct a qualitative story corresponding to each state. In Iowa, I found the differences between clusters most apparent with respect to race, population density, and poverty rate. The same was generally true in North Carolina, athough home prices also seemed to be a relevant factor there, especially in forming a cluster of counties that are traditionally popular vacation spots. After restricting my focus to North Carolina, I employed two heuristics which indicated the appropriate number of clusters to be 7. After plotting a relevant dendrogram and examining it, I found the underlying narrative to still be dictated by the same four considerations as the five cluster solution, with new clusters apparently being split off on the basis of racial composition. I then ran the K-means algorithm as a means of checking my earlier conclusion about the optimal number of clusters, but the results did not strongly support my decision to use 7 rather than 5. However, given the ease of fitting a coherent narrative to the 7 cluster solution (and the other heuristics), I consider the use of 7 clusters to be a reasonable choice.
+
+It is also possilbe to examine the results of this analysis (in NC) in conjunction with those of the PCA conducted on the sample of Midwestern states. Race (indirectly in PCA), income, and population density were relevant among both PCA and the narrative surrounding cluster formation, but manufacturing appeared more relevant in PCA, while housing prices appeared relevant in CA but not PCA. Such a result is perhaps not surprising given the greater prevalence of manufacturing in the Midwest, and tourism in Noeth Carolina, but it is certainly interesting (of course, given the fundamental differences between techniques, such a comparison is far from exact). 
+
+
+#Discriminant Analysis
+
+Finally, to investigate the effect of both demographic data and primary election data on political choices in the general election, I chose to employ discriminant analysis in order to identify the best discriminating variable(s) for region and general election choice. In this analysis, I also included variables that represent support for each party's second place candidate during the primary cycle, Bernie Sanders and Ted Cruz.
+
+I chose to conduct discriminant analysis on the combined Michigan & Wisconsin and North Carolina, which exemplify the Midwest and Atlantic political battlegrounds, respectively. 
+I chose to combine Michigan & Wisconsin because no individual midwestern battleground state had sufficient observations in which Clinton won to plot the chi-squared quantiles adequately for said subset. I was also unable to utilize the grouping of states from PCA because it failed to satisfy the group normality assumption.
+
+
+```{r}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "TX"),]
+
+Countydata <- Countydata[which(Countydata$state_abbreviation == "MI" | Countydata$state_abbreviation == "WI"  ),]
+
+Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "MI" | Primarydata$state_abbreviation == "WI"  ),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "TX" ),]
+
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+Presdata <- Presdata[which(Presdata$st == "MI" | Presdata$st == "WI"  ),]
+#Presdata <- Presdata[which(Presdata$st == "TX" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", as.character(Countydata$state_abbreviation[i]), Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+Countydata <- Countydata[, c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56,57)]
+
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,7] <- Countydata[,7]^3
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+CountydataMIWI <- Countydata
+source("http://www.reuningscherer.net/STAT660/R/CSQPlot.r.txt")
+#CSQPlot(Countydata[,-c(1,2,3,19)], label = "County Census Data")
+library(qualityTools)
+```
+
+```{r}
+Countydata <- read.csv("/Users/ian/Downloads/2016-us-election/county_facts.csv", stringsAsFactors = FALSE)
+Primarydata <- read.csv("/Users/ian/Downloads/2016-us-election/primary_results.csv", stringsAsFactors = FALSE)
+Presdata <- read.csv("/Users/ian/Downloads/pres16results.csv")
+
+#Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "TX"),]
+
+Countydata <- Countydata[which(Countydata$state_abbreviation == "MI" | Countydata$state_abbreviation == "WI" | Countydata$state_abbreviation == "NC"  ),]
+
+Primarydata <- Primarydata[which(Primarydata$state_abbreviation == "MI" | Primarydata$state_abbreviation == "WI" | Primarydata$state_abbreviation == "NC" ),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "TX" ),]
+
+PrimarydataBern <- Primarydata[Primarydata$candidate == "Bernie Sanders",]
+PrimarydataTed <- Primarydata[Primarydata$candidate == "Ted Cruz",]
+for (i in 1:length(Countydata$area_name)){
+  Countydata$BernieShare[i] <- PrimarydataBern$fraction_votes[i]
+  Countydata$TedShare[i] <- PrimarydataTed$fraction_votes[i]
+}
+
+Presdata <- Presdata[which(Presdata$st == "MI" | Presdata$st == "WI" | Presdata$st == "NC" ),]
+#Presdata <- Presdata[which(Presdata$st == "TX" ),]
+Presdata <- Presdata[which(!is.na(Presdata$county)),]
+Presdata <- Presdata[Presdata$cand == "Donald Trump",]
+Presdata <- Presdata[order(Presdata$county),]
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[Countydata$area_name %in% Presdata$county,]
+Countydata$PresWinner <- Presdata$lead
+Countydata <- na.omit(Countydata)
+
+
+for (i in 1:length(Countydata$area_name)){
+  Countydata$area_name[i] <- gsub("County", as.character(Countydata$state_abbreviation[i]), Countydata$area_name[i])
+}
+
+Countydata <- Countydata[order(Countydata$area_name),]
+#Countydata <- Countydata[which(Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "VA" | Countydata$state_abbreviation == "MN") ,]
+
+#possible transformation 11, 12, 13, 14, 15, 16, 17, 18 (meh), 20, 21, 23 (meh)
+# 26, 28, 29, 31(meh), 32(meh), 33(meh), 35, 36, 38,  39(meh), 40, 41, 42, 43, 44, 45, 
+#46, 47, 48(meh), 49 (meh), 50 ,51 
+##Transforms relevant variables so that they are per-capita
+
+Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] <- Countydata[,c(25,27,29,36,37,39,40,47,48,51,52)] / 
+  Countydata[,7]
+
+#transformations here if needed!!
+
+#Countydata <- Countydata[, -c(1, 4, 5, 6, 11, 12, 16, 31, 33, 41:45, 49, 53)]
+#Countydata[,c(8,10,15,21,38)] <- Countydata[,c(8,10,15,21,38)]^.5
+
+Countydata <- Countydata[, c(2,3,7,10,13,18,19,21,23,24,30,34,35,40,47,54,55,56,57)]
+
+Countydata[,5] <- Countydata[,5]^.5
+Countydata[,6] <- Countydata[,6]^.5
+Countydata[,8] <- Countydata[,8]^.5
+Countydata[,9] <- Countydata[,9]^2
+Countydata[,7] <- Countydata[,7]^3
+Countydata[,10] <- Countydata[,10]^.33
+Countydata[,11] <- Countydata[,11]^.33
+Countydata[,16] <- Countydata[,16]^.33
+Countydata[ ,20] <- (Countydata$state_abbreviation == "NC" )
+CountydataMIWINC <- Countydata
+for(i in 1:length(CountydataMIWINC$V20)){
+  if(CountydataMIWINC$PresWinner[i] == "Donald Trump" && CountydataMIWINC$V20[i] == FALSE ){
+    CountydataMIWINC[i,21] <- 0
+    CountydataMIWINC[i,22] <- "Trump MIWI"
+  }
+  else if(CountydataMIWINC$PresWinner[i] == "Donald Trump"){
+     CountydataMIWINC[i,21] <- 1
+     CountydataMIWINC[i,22] <- "Trump NC"
+  }
+  else if(CountydataMIWINC$PresWinner[i] == "Hillary Clinton" && CountydataMIWINC$V20[i] == FALSE){
+    CountydataMIWINC[i,21] <- 2
+    CountydataMIWINC[i,22] <- "Clinton MIWI"
+  }
+  else{ 
+    CountydataMIWINC[i,21] <- 3
+    CountydataMIWINC[i,22] <- "Clinton NC"
+    }
+}
+source("http://www.reuningscherer.net/STAT660/R/CSQPlot.r.txt")
+#CSQPlot(Countydata[,-c(1,2,3,19)], label = "County Census Data")
+library(qualityTools)
+```
+
+
+First, the Chi-Squared quantile plots for each group:
+
+```{r}
+CountydataMIWIT<- CountydataMIWI[CountydataMIWI$PresWinner == "Donald Trump",]
+CSQPlot(CountydataMIWIT[,-c(1,2,3,19)], label = "County Census Data (MI-WI, Trump)")
+
+CountydataMIWIH<- CountydataMIWI[CountydataMIWI$PresWinner == "Hillary Clinton",]
+CSQPlot(CountydataMIWIH[,-c(1,2,3,19)], label = "County Census Data (MI-WI, Clinton)")
+
+CountydataNCT<- CountydataNC[CountydataNC$PresWinner == "Donald Trump",]
+CSQPlot(CountydataNCT[,-c(1,2,3,19)], label = "County Census Data (NC, Trump)")
+
+CountydataNCH<- CountydataNC[CountydataNC$PresWinner == "Hillary Clinton",]
+CSQPlot(CountydataNCH[,-c(1,2,3,19)], label = "County Census Data (NC, Clinton)")
+```
+
+All four plots were sufficiently normal so as to satisfy the assumption.
+
+We also need to establish that the assumption of equal covariance between groups holds. Given the number of variables, using a matrix plot or printing covariances would be uninformative, so therefore I will utilize the ratio of standard deviations heuristic. 
+
+```{r}
+sumstats=round(sqrt(aggregate(CountydataMIWINC[,4:18], by = list(as.integer(CountydataMIWINC[,21])),
+                              FUN=var)),2)[,-c(1,2,3)]
+rownames(sumstats) <- c("Donald Trump MIWI","Donald Trump NC", "Hillary Clinton MIWI", "Hillary Clinton NC")
+print("Standard Deviations by Group")
+sumstats
+```
+
+It is apparent here that the ratios of standard deviations are borderline (~2) for multiple variables. However, none substantially exceed the threshold, and it is still likely more reasonable to utilize linear discriminant analysis.
+
+
+It is also important to verify that the null hypothesis of equal means between groups is rejected for each state. 
+
+```{r}
+CountyMIWINC.manova <- manova(as.matrix(CountydataMIWINC[,4:18]) ~ CountydataMIWINC[,21])
+summary.manova(CountyMIWINC.manova,test="Wilks")
+
+```
+
+The p value produced here is sufficient to reject the null hypothesis, thus satisfying the assumption.
+
+
+Next, stepwise DA:
+
+
+```{r}
+library(klaR)
+(step1MIWINC <- stepclass(V21 ~ RHI225214 + RHI725214+RHI825214+POP645213+EDU635213+EDU685213+HSG495213+ 
+        INC110213+PVY020213+SBO001207 + MAN450207 + POP060210 + BernieShare + TedShare, data=CountydataMIWINC, method="lda", 
+        direction='both' ))
+
+(step2MIWINC <- stepclass(V21 ~ RHI225214 + RHI725214+RHI825214+POP645213+EDU635213+EDU685213+HSG495213+ 
+        INC110213+PVY020213+SBO001207 + MAN450207 + POP060210 + BernieShare + TedShare, data=CountydataMIWINC, method="qda", 
+        direction='both'))
+
+
+```
+
+Both linear and quadratic stepwise classification find Bernie Share to be the sole significant predictor, with linear generally producing a slightly (~.02) higher correctness rate.
+
+Given its better performance, and the approximate satisfaction of its assumptions, I chose to work exclusively with linear DA for the remainder of my analysis. 
+
+For the sake of producing a more interesting and informative analysis, I chose to force in a non-significant secondary variable. After testing several, I found that adding RHI225214 (% African American, transformed) led to the greatest improvement in correctness rate. This is not particularly surprising, as race is considered an influential variable in politics, and African Americans in particular are highly associated with the Democratic party.
+
+Next, results for standard and cross-validated classification, respectively:
+
+```{r}
+MIWINC.disc <- lda(CountydataMIWINC[,c(17, 5)], grouping=CountydataMIWINC$V22) 
+
+
+(MIWINCraw <- table(CountydataMIWINC$V22, predict(MIWINC.disc)$class))
+
+# total percent correct
+round(sum(diag(prop.table(MIWINCraw))),2)
+
+#cross validated results
+MIWINC.discCV=lda(CountydataMIWINC[,c(17, 5)],grouping=CountydataMIWINC[,22],CV=TRUE)
+(ctCV <- table(CountydataMIWINC$V22, MIWINC.discCV$class))
+
+# total percent correct
+round(sum(diag(prop.table(ctCV))),2)
+
+```
+
+###standard   
+Wrong state only: 2+1+2+13 = 18/255   
+Wrong candidate only: 15+4+3+7 = 29/255   
+Wrong state and candidate: 2+2+0+0 = 4/255  
+
+###cross-validated  
+Wrong state only: 2+1+4+14 = 21/255  
+Wrong candidate only: 15+4+3+8 =30/255  
+Wrong state and candidate: 2+2+0+0 =4/255  
+
+Both standard and cross-validated classification were more likely to misclassify by candidate alone than by state alone. This implies that with respect to the variables achieving the best overall correctness, candidate groups within a state were less distinct from another than were states from other states. 
+
+Despite this, the overall rate of correctness was strong (.8 and .78 for standard and cross-validated, respectively).
+
+Next, partition plots:
+
+```{r}
+
+partimat(as.factor(V21)~ RHI225214 + BernieShare , data=CountydataMIWINC, method="lda")
+```
+
+Note that: 0 = Trump MIWI, 1 = Trump NC, 2 = Clinton MIWI, 3 = Clinton NC 
+
+The plot above depicts the classification (and misclassification) of observations into each of the four groups based on values of BernieShare (Sanders voteshare) and RHI225214 (% African American, transformed). Generally speaking, the plot associates with low values of BernieShare with NC, high values of BernieShare with MIWI, low values of RHI225214 with Trump victory, and high values of RHI225214 with Clinton victory. However, since (as per stewise LDA) BernieShare was the lone significant predictor, with a correctness rate of ~78%. Therefore, it is apparent that BernieShare is at least somewhat capable of predicting the victor in a county, independent of other predictors, and the implication of the plot being oriented as above is merely that the additional accuracy provided by RHI225214 is mostly with respect to victor. 
+
+##Implications of DA results:
+
+  The implication of BernieShare being the sole significant predictor is that primary choice indicators are more successful than direct demographic indicators in predicting the combination of state and winning candidate here.
+  If this finding were to hold across other combinations of states, it would signify that political subregions (with respect to the general election) of different states are quantitatively distinct, and that this distinction is more clearly visible (across multiple states) in terms of political primary preferences rather than pure demographic variables. That this is evidently the case in North Carolina and the combined region of Michigan and Wisconsin is interesting in that it subverts the traditional political wisdom of demographics being paramount. 
+  What is not particularly surprising, however, is that a racial variable proved to be the demographic variable yielding the largest improvement in correctness. There is a long history of correlation between racial and political identity in the U.S., to a greater extent than income, education or other such variables, and its manifestation here is exactly what we would expect. 
+  
+
+#Conclusion
+
+Through the use of Principal Components Analysis, Cluster Analysis, and Discriminant Analysis, I examined relationships between demograpics and political outcomes across the counties of several battleground states.I began with PCA on a sample of five contentious Midwestern states, the results of which suggested that the demographic variation within these states could be explained well by variables representing ruralness, affluence, "blue-collarness", and prevalence of immigrants.
+
+I then performed Cluster Analysis on demographic variables for Iowa and North Carolina, which I found to imply relevance of population density and poverty levels, which were analogous to the first two PCA components. However, other factors (apparently) influencing the CA (race, housing prices) and PCA (immigrants, blue-collar) were not visibly held in common. It is possible that this reflects a difference between the political landscapes of North Carolina and the Midwestern battleground states, or merely a result of different approaches, but one cannot say conclusively without further investigation. 
+
+I then proceeded to perform Discriminant Analysis to classify observations between four groups based on the combination of state (NC or WI/MI) and general election victor. I found Bernie Sanders' vote share in the 2016 primary election cycle in a given county to be the sole significant variable (via stepwise classification) in said DA. This was surprising, and implied that, in deciding amongst the four political subregions under consideration, primary cycle variables had primacy over the traditionally valued demographic variables. As such, I consider this to be the single most intriguing result of my entire analysis.
